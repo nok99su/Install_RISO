@@ -54,11 +54,13 @@ function Invoke-Installation {
     }
 
     if (Test-Path $installerPath) {
-        $argsList = @("-Silent")
-        if ($SetDefault) { $argsList += "-SetDefault" }
-        if ($TestPage)   { $argsList += "-TestPage" }
-        
-        & $installerPath @argsList
+        if ($SetDefault) {
+            & $installerPath -Silent -SetDefault -PrinterIP "172.16.40.194"
+        } elseif ($TestPage) {
+            & $installerPath -Silent -TestPage -PrinterIP "172.16.40.194"
+        } else {
+            & $installerPath -Silent -PrinterIP "172.16.40.194"
+        }
     } else {
         Write-Host "[-] install.ps1 not found in package" -ForegroundColor Red
     }
