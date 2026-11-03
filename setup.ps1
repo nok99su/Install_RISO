@@ -1,8 +1,7 @@
 # ==============================================================================
 # RISO ORPHIS FW1230 - 1-Liner PowerShell Network Installer
 # St. Mary School Campus Network
-# Server: http://172.16.0.3/riso
-# Usage : irm http://172.16.0.3/riso | iex
+# Server: http://172.16.0.3/riso  |  GitHub: nok99su/Install_RISO
 # ==============================================================================
 
 # Enable TLS 1.2 and bypass ExecutionPolicy for current session
@@ -14,7 +13,7 @@ if ([Environment]::Is64BitOperatingSystem -and -not [Environment]::Is64BitProces
     $nativePs = "$env:windir\Sysnative\WindowsPowerShell\v1.0\powershell.exe"
     if (Test-Path $nativePs) {
         Write-Host "[*] Switching to 64-bit PowerShell..." -ForegroundColor Yellow
-        & $nativePs -NoProfile -ExecutionPolicy Bypass -NoExit -Command "irm 'http://172.16.0.3/riso' | iex"
+        & $nativePs -NoProfile -ExecutionPolicy Bypass -NoExit -Command "irm 'https://raw.githubusercontent.com/nok99su/Install_RISO/main/setup.ps1' | iex"
         exit
     }
 }
@@ -24,7 +23,7 @@ $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIden
 if (-not $isAdmin) {
     Write-Host "`n[*] Requesting Administrator privileges (UAC)..." -ForegroundColor Yellow
     try {
-        Start-Process powershell -ArgumentList "-NoProfile -ExecutionPolicy Bypass -NoExit -Command `"irm 'http://172.16.0.3/riso' | iex`"" -Verb RunAs -ErrorAction Stop
+        Start-Process powershell -ArgumentList "-NoProfile -ExecutionPolicy Bypass -NoExit -Command `"irm 'https://raw.githubusercontent.com/nok99su/Install_RISO/main/setup.ps1' | iex`"" -Verb RunAs -ErrorAction Stop
     } catch {
         Write-Host "`n[!] Failed to elevate: $_" -ForegroundColor Red
         Write-Host "Please right-click PowerShell and select 'Run as administrator', then re-run the command." -ForegroundColor Yellow
@@ -49,29 +48,39 @@ function Invoke-Installation {
 
     $tempZip = Join-Path $env:TEMP "RISO_FW1230.zip"
     $tempDir = Join-Path $env:TEMP "RISO_FW1230_Setup"
-    $downloadUrl = "http://172.16.0.3/riso/RISO_FW1230.zip"
+    $localUrl = "http://172.16.0.3/riso/RISO_FW1230.zip"
+    $cloudUrl = "https://github.com/nok99su/Install_RISO/releases/download/v1.0.0/RISO_ORPHIS_FW1230_AutoInstaller.zip"
 
     # Remove old cached files
     if (Test-Path $tempZip) { Remove-Item $tempZip -Force -ErrorAction SilentlyContinue }
     if (Test-Path $tempDir) { Remove-Item $tempDir -Recurse -Force -ErrorAction SilentlyContinue }
 
-    Write-Host "`n[*] Downloading package from Server 172.16.0.3..." -ForegroundColor Cyan
+    # Dual-source download: Try Local Server first, fallback to GitHub Cloud
+    $downloadSuccess = $false
+    Write-Host "`n[*] Attempting download from Local Server (172.16.0.3)..." -ForegroundColor Cyan
     try {
-        Invoke-WebRequest -Uri $downloadUrl -OutFile $tempZip -UseBasicParsing -TimeoutSec 30
+        Invoke-WebRequest -Uri $localUrl -OutFile $tempZip -UseBasicParsing -TimeoutSec 5
         $zipSize = (Get-Item $tempZip).Length / 1MB
-        Write-Host ("[+] Downloaded successfully ({0:N2} MB) from local server" -f $zipSize) -ForegroundColor Green
+        Write-Host ("[+] Downloaded successfully ({0:N2} MB) from Local Server" -f $zipSize) -ForegroundColor Green
+        $downloadSuccess = $true
     } catch {
-        Write-Host "[-] Download failed: $_" -ForegroundColor Red
-        Write-Host "    Check your network connection: Must be connected to School Wi-Fi or LAN." -ForegroundColor Yellow
-        pause
-        return
+        Write-Host "[-] Local Server unreachable, falling back to GitHub Cloud..." -ForegroundColor Yellow
+        try {
+            Invoke-WebRequest -Uri $cloudUrl -OutFile $tempZip -UseBasicParsing -TimeoutSec 30
+            $zipSize = (Get-Item $tempZip).Length / 1MB
+            Write-Host ("[+] Downloaded successfully ({0:N2} MB) from GitHub Cloud" -f $zipSize) -ForegroundColor Green
+            $downloadSuccess = $true
+        } catch {
+            Write-Host "[-] Both Local Server and GitHub download failed: $_" -ForegroundColor Red
+            pause
+            return
+        }
     }
 
     Write-Host "[*] Extracting installer files..." -ForegroundColor Cyan
     try {
         Expand-Archive -Path $tempZip -DestinationPath $tempDir -Force
     } catch {
-        # Fallback extraction method
         Add-Type -AssemblyName System.IO.Compression.FileSystem
         [System.IO.Compression.ZipFile]::ExtractToDirectory($tempZip, $tempDir)
     }
