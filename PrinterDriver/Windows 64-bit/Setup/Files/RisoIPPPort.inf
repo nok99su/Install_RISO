@@ -1,0 +1,31 @@
+; RisoIPPPort.inf
+;
+; Installation inf for RISO IPP port monitor
+;
+;
+
+[Version]
+Signature="$Windows NT$"
+Provider=%PMProducer%
+ClassGUID={4D36E979-E325-11CE-BFC1-08002BE10318}
+Class=Printer
+DriverVer= 8/30/2017,1.0.1.2
+
+[PortMonitors]
+"RISO IPP Port" = RisoIppmon
+
+[RisoIppmon]
+CopyFiles=@RisoIppmon.dll, @RisoIppmonui.dll, @RisoLangRes.dll
+PortMonitorDll=RisoIppmon.dll
+
+[SourceDisksFiles]
+RisoIppmon.dll=1,,
+RisoIppmonui.dll=1,,
+RisoLangRes.dll=1, ..\English\,
+
+[SourceDisksNames]
+1="RISO IPP Port Installation Disk",,,
+
+[Strings]
+PMProducer="RISO KAGAKU CORPORATION"
+

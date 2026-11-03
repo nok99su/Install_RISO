@@ -2,6 +2,7 @@
 # RISO ORPHIS FW1230 - Automated Installer & Configuration Script
 # St. Mary School Campus Network
 # Target Printer: 172.16.40.194:9100
+# Source Driver : FW_GDI_DVD412A_WHQL_64bit (Official RISO Release)
 # ==============================================================================
 [CmdletBinding()]
 param(
@@ -84,7 +85,12 @@ if ($spooler.Status -ne "Running") {
 # 5. Test Network Connection to RISO
 $PrinterName = "RISO ORPHIS FW1230"
 $PortName = "RISO_$PrinterIP"
-$DriverInf = Join-Path $PSScriptRoot "Driver\RISODRV.INF"
+
+# Use official original driver source
+$DriverInf = Join-Path $PSScriptRoot "PrinterDriver\Windows 64-bit\Driver\RISODRV.INF"
+if (-not (Test-Path $DriverInf)) {
+    $DriverInf = Join-Path $PSScriptRoot "Driver\RISODRV.INF"
+}
 $SettingsDat = Join-Path $PSScriptRoot "riso_settings.dat"
 
 Write-Step "Testing network connection to printer ($PrinterIP)..."
