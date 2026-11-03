@@ -1,27 +1,30 @@
-﻿# ==============================================================================
-# RISO ORPHIS FW1230 - Online 1-Liner PowerShell Installer
+# ==============================================================================
+# RISO ORPHIS FW1230 - 1-Liner PowerShell Network Installer
 # St. Mary School Campus Network
-# Usage: irm <URL> | iex
+# Server: http://172.16.0.3/riso
+# Usage : irm http://172.16.0.3/riso | iex
 # ==============================================================================
 
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+[Console]::InputEncoding  = [System.Text.Encoding]::UTF8
+chcp 65001 >$null 2>&1
 
-# 1. ตรวจสอบและขอสิทธิ์ Administrator อัตโนมัติ
+# 1. ตรวจสอบและขอสิทธิ์ Administrator (UAC)
 $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 if (-not $isAdmin) {
-    Write-Host "[*] กำลังร้องขอสิทธิ์ Administrator (UAC)..." -ForegroundColor Yellow
-    Start-Process powershell -ArgumentList "-NoProfile -ExecutionPolicy Bypass -Command `"irm 'https://raw.githubusercontent.com/nok99su/Install_RISO/main/setup.ps1' | iex`"" -Verb RunAs
+    Write-Host "`n[*] กำลังร้องขอสิทธิ์ Administrator (UAC)..." -ForegroundColor Yellow
+    Start-Process powershell -ArgumentList "-NoProfile -ExecutionPolicy Bypass -Command `"irm 'http://172.16.0.3/riso' | iex`"" -Verb RunAs
     exit
 }
 
 Clear-Host
-$Host.UI.RawUI.WindowTitle = "RISO ORPHIS FW1230 - Interactive Installer"
+$Host.UI.RawUI.WindowTitle = "RISO ORPHIS FW1230 - School Network Installer"
 
 function Show-Banner {
     Write-Host "==================================================================" -ForegroundColor Cyan
-    Write-Host "       RISO ORPHIS FW1230 - Automated Network Installer" -ForegroundColor Yellow
+    Write-Host "      RISO ORPHIS FW1230 - School Network Auto Installer" -ForegroundColor Yellow
     Write-Host "                St. Mary School Campus Network" -ForegroundColor White
-    Write-Host "                 Printer IP: 172.16.40.194" -ForegroundColor Gray
+    Write-Host "      Server: 172.16.0.3  |  Printer IP: 172.16.40.194" -ForegroundColor Gray
     Write-Host "==================================================================" -ForegroundColor Cyan
 }
 
@@ -30,25 +33,24 @@ function Invoke-Installation {
 
     $tempZip = Join-Path $env:TEMP "RISO_FW1230.zip"
     $tempDir = Join-Path $env:TEMP "RISO_FW1230_Setup"
-    $downloadUrl = "https://github.com/nok99su/Install_RISO/releases/download/v1.0.0/RISO_ORPHIS_FW1230_AutoInstaller.zip"
+    $downloadUrl = "http://172.16.0.3/riso/RISO_FW1230.zip"
 
-    Write-Host "`n[*] กำลังดาวน์โหลดชุดติดตั้งไดรเวอร์และค่าคอนฟิกจาก GitHub..." -ForegroundColor Cyan
+    Write-Host "`n[*] กำลังดึงแพ็กเกจติดตั้งจาก Server 172.16.0.3..." -ForegroundColor Cyan
     try {
-        [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
         Invoke-WebRequest -Uri $downloadUrl -OutFile $tempZip -UseBasicParsing
-        Write-Host "[+] ดาวน์โหลดสำเร็จ (ขนาด: $((Get-Item $tempZip).Length / 1MB | ForEach-Object { '{0:N2} MB' -f $_ }))" -ForegroundColor Green
+        $zipSize = (Get-Item $tempZip).Length / 1MB
+        Write-Host ("[+] ดาวน์โหลดสำเร็จ ({0:N2} MB) จาก Local Server" -f $zipSize) -ForegroundColor Green
     } catch {
         Write-Host "[-] เกิดข้อผิดพลาดในการดาวน์โหลด: $_" -ForegroundColor Red
-        Write-Host "    (หากยังตั้งค่า GitHub เป็น Private กรุณาเปลี่ยนเป็น Public หรือระบุ URL ภายในโรงเรียน)" -ForegroundColor Yellow
+        Write-Host "    กรุณาตรวจสอบว่าเชื่อมต่อ Wi-Fi หรือ LAN ของโรงเรียนอยู่หรือไม่" -ForegroundColor Yellow
         pause
         return
     }
 
-    Write-Host "[*] กำลังแตกไฟล์แพ็กเกจ..." -ForegroundColor Cyan
+    Write-Host "[*] กำลังคลี่ไฟล์แพ็กเกจ..." -ForegroundColor Cyan
     if (Test-Path $tempDir) { Remove-Item $tempDir -Recurse -Force -ErrorAction SilentlyContinue }
     Expand-Archive -Path $tempZip -DestinationPath $tempDir -Force
 
-    # ค้นหาโฟลเดอร์โครงการ
     $installerPath = Join-Path $tempDir "install.ps1"
     if (-not (Test-Path $installerPath)) {
         $sub = Get-ChildItem -Path $tempDir -Directory | Select-Object -First 1
@@ -146,4 +148,3 @@ while ($true) {
         }
     }
 }
-
