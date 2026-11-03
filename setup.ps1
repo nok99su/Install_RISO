@@ -5,21 +5,31 @@
 # Usage : irm http://172.16.0.3/riso | iex
 # ==============================================================================
 
+# Enable TLS 1.2 and bypass ExecutionPolicy for current session
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12 -bor [Net.SecurityProtocolType]::Tls11 -bor [Net.SecurityProtocolType]::Tls
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force -ErrorAction SilentlyContinue
+
 # 1. Auto-switch to 64-bit PowerShell if running under 32-bit (x86) on 64-bit Windows
 if ([Environment]::Is64BitOperatingSystem -and -not [Environment]::Is64BitProcess) {
     $nativePs = "$env:windir\Sysnative\WindowsPowerShell\v1.0\powershell.exe"
     if (Test-Path $nativePs) {
         Write-Host "[*] Switching to 64-bit PowerShell..." -ForegroundColor Yellow
-        & $nativePs -NoProfile -ExecutionPolicy Bypass -Command "irm 'http://172.16.0.3/riso' | iex"
+        & $nativePs -NoProfile -ExecutionPolicy Bypass -NoExit -Command "irm 'http://172.16.0.3/riso' | iex"
         exit
     }
 }
 
-# 2. Check and request Administrator privileges (UAC)
+# 2. Check and request Administrator privileges (UAC) with -NoExit to prevent instant closing
 $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 if (-not $isAdmin) {
     Write-Host "`n[*] Requesting Administrator privileges (UAC)..." -ForegroundColor Yellow
-    Start-Process powershell -ArgumentList "-NoProfile -ExecutionPolicy Bypass -Command `"irm 'http://172.16.0.3/riso' | iex`"" -Verb RunAs
+    try {
+        Start-Process powershell -ArgumentList "-NoProfile -ExecutionPolicy Bypass -NoExit -Command `"irm 'http://172.16.0.3/riso' | iex`"" -Verb RunAs -ErrorAction Stop
+    } catch {
+        Write-Host "`n[!] Failed to elevate: $_" -ForegroundColor Red
+        Write-Host "Please right-click PowerShell and select 'Run as administrator', then re-run the command." -ForegroundColor Yellow
+        pause
+    }
     exit
 }
 
@@ -47,18 +57,24 @@ function Invoke-Installation {
 
     Write-Host "`n[*] Downloading package from Server 172.16.0.3..." -ForegroundColor Cyan
     try {
-        Invoke-WebRequest -Uri $downloadUrl -OutFile $tempZip -UseBasicParsing
+        Invoke-WebRequest -Uri $downloadUrl -OutFile $tempZip -UseBasicParsing -TimeoutSec 30
         $zipSize = (Get-Item $tempZip).Length / 1MB
         Write-Host ("[+] Downloaded successfully ({0:N2} MB) from local server" -f $zipSize) -ForegroundColor Green
     } catch {
-        Write-Host "[-] Download error: $_" -ForegroundColor Red
-        Write-Host "    Please ensure you are connected to School Wi-Fi or LAN." -ForegroundColor Yellow
+        Write-Host "[-] Download failed: $_" -ForegroundColor Red
+        Write-Host "    Check your network connection: Must be connected to School Wi-Fi or LAN." -ForegroundColor Yellow
         pause
         return
     }
 
     Write-Host "[*] Extracting installer files..." -ForegroundColor Cyan
-    Expand-Archive -Path $tempZip -DestinationPath $tempDir -Force
+    try {
+        Expand-Archive -Path $tempZip -DestinationPath $tempDir -Force
+    } catch {
+        # Fallback extraction method
+        Add-Type -AssemblyName System.IO.Compression.FileSystem
+        [System.IO.Compression.ZipFile]::ExtractToDirectory($tempZip, $tempDir)
+    }
 
     $installerPath = Join-Path $tempDir "install.ps1"
     if (-not (Test-Path $installerPath)) {
@@ -67,12 +83,16 @@ function Invoke-Installation {
     }
 
     if (Test-Path $installerPath) {
-        if ($SetDefault) {
-            & $installerPath -Silent -SetDefault -PrinterIP "172.16.40.194"
-        } elseif ($TestPage) {
-            & $installerPath -Silent -TestPage -PrinterIP "172.16.40.194"
+        Write-Host "[*] Executing installer with ExecutionPolicy Bypass..." -ForegroundColor Cyan
+        $argsList = @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "`"$installerPath`"", "-Silent", "-PrinterIP", "172.16.40.194")
+        if ($SetDefault) { $argsList += "-SetDefault" }
+        if ($TestPage)   { $argsList += "-TestPage" }
+        
+        $p = Start-Process -FilePath "powershell.exe" -ArgumentList $argsList -Wait -PassThru -NoNewWindow
+        if ($p.ExitCode -eq 0) {
+            Write-Host "`n[+] Installation finished successfully." -ForegroundColor Green
         } else {
-            & $installerPath -Silent -PrinterIP "172.16.40.194"
+            Write-Host "`n[!] Installer returned code $($p.ExitCode)" -ForegroundColor Yellow
         }
     } else {
         Write-Host "[-] install.ps1 not found in package" -ForegroundColor Red
