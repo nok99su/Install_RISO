@@ -11,8 +11,17 @@ param(
     [string]$PrinterIP = "172.16.40.194"
 )
 
-# Safety check for PrinterIP
-if ([string]::IsNullOrWhiteSpace($PrinterIP) -or $PrinterIP.StartsWith("-")) {
+# 1. Auto-switch to 64-bit PowerShell if running in 32-bit (SysWOW64)
+if ([Environment]::Is64BitOperatingSystem -and -not [Environment]::Is64BitProcess) {
+    $nativePs = "$env:windir\Sysnative\WindowsPowerShell\v1.0\powershell.exe"
+    if (Test-Path $nativePs) {
+        & $nativePs -NoProfile -ExecutionPolicy Bypass -File $MyInvocation.MyCommand.Path -Silent:$Silent -SetDefault:$SetDefault -TestPage:$TestPage -PrinterIP $PrinterIP
+        exit $LASTEXITCODE
+    }
+}
+
+# 2. Strict validation for PrinterIP
+if ([string]::IsNullOrWhiteSpace($PrinterIP) -or $PrinterIP.StartsWith("-") -or $PrinterIP -eq "Silent") {
     $PrinterIP = "172.16.40.194"
 }
 
@@ -44,7 +53,12 @@ Write-Host "                St. Mary School Campus Network" -ForegroundColor Whi
 Write-Host "             Printer IP: $PrinterIP (Port 9100)" -ForegroundColor Gray
 Write-Host "==================================================================" -ForegroundColor White
 
-# 1. Check Administrator Privileges
+# Clean up corrupt previous attempts if any
+if (Get-PrinterPort -Name "RISO_-Silent" -ErrorAction SilentlyContinue) {
+    Remove-PrinterPort -Name "RISO_-Silent" -ErrorAction SilentlyContinue
+}
+
+# 3. Check Administrator Privileges
 Write-Step "Checking Administrator privileges..."
 $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 if (-not $isAdmin) {
@@ -57,7 +71,7 @@ if (-not $isAdmin) {
 }
 Write-Success "Running with Administrator privileges."
 
-# 2. Check Print Spooler Service
+# 4. Check Print Spooler Service
 Write-Step "Checking Print Spooler service..."
 $spooler = Get-Service -Name Spooler -ErrorAction SilentlyContinue
 if ($spooler.Status -ne "Running") {
@@ -67,7 +81,7 @@ if ($spooler.Status -ne "Running") {
     Write-Success "Print Spooler service is running."
 }
 
-# 3. Test Network Connection to RISO
+# 5. Test Network Connection to RISO
 $PrinterName = "RISO ORPHIS FW1230"
 $PortName = "RISO_$PrinterIP"
 $DriverInf = Join-Path $PSScriptRoot "Driver\RISODRV.INF"
@@ -79,20 +93,32 @@ if ($ping) {
     Write-Success "Printer is ONLINE at $PrinterIP (Ready to print)."
 } else {
     Write-Warn "Cannot reach $PrinterIP currently (Printer may be off or PC is not on school network)."
-    Write-Warn "Driver and port will still be installed. Once connected to school LAN/Wi-Fi, it will work."
+    Write-Warn "Driver and port will still be installed. Once connected to school network, it will work."
 }
 
-# 4. Install Driver to DriverStore
+# 6. Install Driver into DriverStore (Locating native pnputil)
 Write-Step "Staging driver package into DriverStore (RISODRV.INF)..."
 if (-not (Test-Path $DriverInf)) {
     Write-Err "Driver file not found: $DriverInf"
     exit 1
 }
 
-$null = pnputil.exe /add-driver "$DriverInf" /install
-Write-Success "Driver package staged in Windows DriverStore."
+$pnputil = if (Test-Path "$env:windir\System32\pnputil.exe") {
+    "$env:windir\System32\pnputil.exe"
+} elseif (Test-Path "$env:windir\Sysnative\pnputil.exe") {
+    "$env:windir\Sysnative\pnputil.exe"
+} else {
+    "pnputil.exe"
+}
 
-# 5. Register Driver in Spooler
+try {
+    $null = & $pnputil /add-driver "$DriverInf" /install
+    Write-Success "Driver package staged in Windows DriverStore."
+} catch {
+    Write-Warn "pnputil fallback: attempting direct Spooler installation."
+}
+
+# 7. Register Driver in Spooler
 Write-Step "Registering driver in Windows Spooler..."
 try {
     Add-PrinterDriver -Name $PrinterName -ErrorAction Stop
@@ -102,7 +128,7 @@ try {
     Write-Success "Registered driver via PrintUI."
 }
 
-# 6. Create Standard TCP/IP Port
+# 8. Create Standard TCP/IP Port
 Write-Step "Configuring Standard TCP/IP Port ($PortName -> $PrinterIP)..."
 $existingPort = Get-PrinterPort -Name $PortName -ErrorAction SilentlyContinue
 if (-not $existingPort) {
@@ -117,7 +143,7 @@ if (-not $existingPort) {
     Write-Success "Port $PortName already exists."
 }
 
-# 7. Add Printer
+# 9. Add or Update Printer
 Write-Step "Installing printer '$PrinterName'..."
 $existingPrinter = Get-Printer -Name $PrinterName -ErrorAction SilentlyContinue
 if (-not $existingPrinter) {
@@ -130,10 +156,10 @@ if (-not $existingPrinter) {
     }
 } else {
     Set-Printer -Name $PrinterName -DriverName $PrinterName -PortName $PortName
-    Write-Success "Updated existing printer '$PrinterName'."
+    Write-Success "Updated existing printer '$PrinterName' to port $PortName."
 }
 
-# 8. Restore Configuration Settings
+# 10. Restore Configuration Settings
 Write-Step "Restoring configuration preset (A4, 2-Sided Duplex, Trays, Monochrome)..."
 if (Test-Path $SettingsDat) {
     $proc = Start-Process -FilePath "rundll32.exe" -ArgumentList "printui.dll,PrintUIEntry /Sr /n `"$PrinterName`" /a `"$SettingsDat`" d u g m r f" -Wait -PassThru
@@ -142,7 +168,7 @@ if (Test-Path $SettingsDat) {
     Write-Warn "Configuration file $SettingsDat not found. Skipping."
 }
 
-# 9. Set Default Printer
+# 11. Set Default Printer
 if ($SetDefault) {
     (New-Object -ComObject WScript.Network).SetDefaultPrinter($PrinterName)
     Write-Success "Set '$PrinterName' as Default Printer."
@@ -155,7 +181,7 @@ if ($SetDefault) {
     }
 }
 
-# 10. Print Test Page
+# 12. Print Test Page
 if ($TestPage) {
     if ($ping) {
         rundll32.exe printui.dll,PrintUIEntry /k /n "$PrinterName"

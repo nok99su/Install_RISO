@@ -5,7 +5,17 @@
 # Usage : irm http://172.16.0.3/riso | iex
 # ==============================================================================
 
-# 1. Check and request Administrator privileges (UAC)
+# 1. Auto-switch to 64-bit PowerShell if running under 32-bit (x86) on 64-bit Windows
+if ([Environment]::Is64BitOperatingSystem -and -not [Environment]::Is64BitProcess) {
+    $nativePs = "$env:windir\Sysnative\WindowsPowerShell\v1.0\powershell.exe"
+    if (Test-Path $nativePs) {
+        Write-Host "[*] Switching to 64-bit PowerShell..." -ForegroundColor Yellow
+        & $nativePs -NoProfile -ExecutionPolicy Bypass -Command "irm 'http://172.16.0.3/riso' | iex"
+        exit
+    }
+}
+
+# 2. Check and request Administrator privileges (UAC)
 $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 if (-not $isAdmin) {
     Write-Host "`n[*] Requesting Administrator privileges (UAC)..." -ForegroundColor Yellow
@@ -31,6 +41,10 @@ function Invoke-Installation {
     $tempDir = Join-Path $env:TEMP "RISO_FW1230_Setup"
     $downloadUrl = "http://172.16.0.3/riso/RISO_FW1230.zip"
 
+    # Remove old cached files
+    if (Test-Path $tempZip) { Remove-Item $tempZip -Force -ErrorAction SilentlyContinue }
+    if (Test-Path $tempDir) { Remove-Item $tempDir -Recurse -Force -ErrorAction SilentlyContinue }
+
     Write-Host "`n[*] Downloading package from Server 172.16.0.3..." -ForegroundColor Cyan
     try {
         Invoke-WebRequest -Uri $downloadUrl -OutFile $tempZip -UseBasicParsing
@@ -44,7 +58,6 @@ function Invoke-Installation {
     }
 
     Write-Host "[*] Extracting installer files..." -ForegroundColor Cyan
-    if (Test-Path $tempDir) { Remove-Item $tempDir -Recurse -Force -ErrorAction SilentlyContinue }
     Expand-Archive -Path $tempZip -DestinationPath $tempDir -Force
 
     $installerPath = Join-Path $tempDir "install.ps1"
@@ -131,6 +144,7 @@ while ($true) {
             Write-Host "`n[*] Uninstalling RISO..." -ForegroundColor Yellow
             Remove-Printer -Name "RISO ORPHIS FW1230" -ErrorAction SilentlyContinue
             Remove-PrinterPort -Name "RISO_172.16.40.194" -ErrorAction SilentlyContinue
+            Remove-PrinterPort -Name "RISO_-Silent" -ErrorAction SilentlyContinue
             try { Remove-PrinterDriver -Name "RISO ORPHIS FW1230" -ErrorAction Stop } catch {}
             Write-Host "[+] Uninstalled successfully." -ForegroundColor Green
             Write-Host "`nPress any key to return to main menu..." -ForegroundColor Gray
